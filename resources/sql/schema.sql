@@ -1,0 +1,2 @@
+-- Placeholder for SQL CREATE TABLE statements.
+-- Actual implementation to follow in the execution phase.

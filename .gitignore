@@ -1,0 +1,13 @@
+# Build artifacts
+bin/
+*.class
+
+# IDE and OS files
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# Configuration secrets
+resources/config/*.properties
+!resources/config/database.properties.example

@@ -11,3 +11,7 @@ bin/
 # Configuration secrets
 resources/config/*.properties
 !resources/config/database.properties.example
+target/
+
+# Local database credentials
+/src/main/resources/config/database.properties

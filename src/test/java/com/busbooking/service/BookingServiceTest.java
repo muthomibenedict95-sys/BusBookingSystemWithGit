@@ -124,6 +124,16 @@ class BookingServiceTest {
                 () -> service.getAvailableSeats(999));
     }
 
+    @Test
+    void rejectsBookingWithoutRegisteredUser() {
+        BookingService service = new BookingService(
+                new StubBookingDAO(null), testClock());
+
+        assertThrows(IllegalArgumentException.class,
+                () -> service.createPendingBooking(
+                        0, 1, "Jane Doe", 1));
+    }
+
     private Clock testClock() {
         return Clock.fixed(
                 Instant.parse("2026-10-20T13:00:00Z"),

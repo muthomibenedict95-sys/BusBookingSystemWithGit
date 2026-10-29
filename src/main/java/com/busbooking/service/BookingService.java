@@ -19,6 +19,8 @@ public class BookingService {
     private static final ZoneId BUSINESS_ZONE =
             ZoneId.of("Africa/Nairobi");
 
+    private static final long HOLD_MINUTES = 10;
+
     private final BookingDAO bookingDAO;
     private final Clock clock;
 
@@ -31,12 +33,22 @@ public class BookingService {
         this.clock = Objects.requireNonNull(clock);
     }
 
-    public Booking createBooking(int scheduleId, String passengerName,
-                                 int seatNumber) {
-        validateBasicInput(scheduleId, passengerName, seatNumber);
+    /**
+     * Creates a pending booking and temporarily reserves its seat.
+     * Payment must succeed before the booking can be confirmed.
+     */
+    public Booking createPendingBooking(
+            int userId,
+            int scheduleId,
+            String passengerName,
+            int seatNumber) {
 
-        Booking booking = new Booking(
-                0, scheduleId, passengerName.trim(), seatNumber, null);
+        if (userId <= 0) {
+            throw new IllegalArgumentException(
+                    "A registered customer is required to book a seat.");
+        }
+
+        validateBasicInput(scheduleId, passengerName, seatNumber);
 
         try (Connection connection = DatabaseConnection.getConnection()) {
             connection.setAutoCommit(false);
@@ -51,13 +63,13 @@ public class BookingService {
                             "The requested schedule does not exist.");
                 }
 
-                // Read the clock after acquiring the schedule lock.
+                // Use one consistent instant throughout the transaction.
                 LocalDateTime now = LocalDateTime.now(
                         clock.withZone(BUSINESS_ZONE));
 
                 validateBookingDetails(
                         scheduleId,
-                        booking.getPassengerName(),
+                        passengerName.trim(),
                         seatNumber,
                         details.departureDate(),
                         details.departureTime(),
@@ -65,14 +77,31 @@ public class BookingService {
                         now
                 );
 
+                // Release expired seats while holding the schedule lock.
+                bookingDAO.releaseExpiredHolds(
+                        connection, scheduleId, now);
+
                 if (bookingDAO.isSeatBooked(
-                        connection, scheduleId, seatNumber)) {
+                        connection, scheduleId, seatNumber, now)) {
                     throw new IllegalStateException(
-                            "That seat is already booked. Choose another seat.");
+                            "That seat is already reserved. Choose another seat.");
                 }
 
+                Booking booking = new Booking(
+                        0,
+                        userId,
+                        scheduleId,
+                        passengerName.trim(),
+                        seatNumber,
+                        null,
+                        Booking.Status.PENDING_PAYMENT,
+                        now.plusMinutes(HOLD_MINUTES)
+                );
+
+                // The booking and its seat hold must commit together.
                 bookingDAO.insert(connection, booking);
                 connection.commit();
+
                 return booking;
 
             } catch (SQLException e) {
@@ -80,12 +109,12 @@ public class BookingService {
 
                 if (isDuplicateKey(e)) {
                     throw new IllegalStateException(
-                            "That seat has already been booked. " +
+                            "That seat has already been reserved. " +
                             "Choose another seat.", e);
                 }
 
                 throw new IllegalStateException(
-                        "Could not create the booking.", e);
+                        "Could not create the pending booking.", e);
 
             } catch (RuntimeException e) {
                 rollback(connection, e);
@@ -100,21 +129,25 @@ public class BookingService {
 
     public Booking getBookingById(int id) {
         if (id <= 0) {
-            throw new IllegalArgumentException("Booking ID must be positive.");
+            throw new IllegalArgumentException(
+                    "Booking ID must be positive.");
         }
+
         return bookingDAO.findById(id);
     }
 
     public List<Booking> getBookingsForSchedule(int scheduleId) {
         if (scheduleId <= 0) {
-            throw new IllegalArgumentException("Schedule ID must be positive.");
+            throw new IllegalArgumentException(
+                    "Schedule ID must be positive.");
         }
+
         return bookingDAO.findByScheduleId(scheduleId);
     }
 
     /**
-     * Returns currently available seat numbers for a future departure.
-     * Booking confirmation must independently revalidate availability.
+     * Returns currently available seats for a future departure.
+     * Booking creation independently revalidates availability.
      */
     public List<Integer> getAvailableSeats(int scheduleId) {
         if (scheduleId <= 0) {
@@ -156,34 +189,6 @@ public class BookingService {
         return getAvailableSeats(scheduleId).size();
     }
 
-    private static void validateBasicInput(int scheduleId,
-                                           String passengerName,
-                                           int seatNumber) {
-        if (scheduleId <= 0) {
-            throw new IllegalArgumentException(
-                    "Schedule ID must be positive.");
-        }
-
-        if (passengerName == null || passengerName.trim().isEmpty()) {
-            throw new IllegalArgumentException(
-                    "Passenger name cannot be empty.");
-        }
-
-        if (passengerName.trim().length() > 100) {
-            throw new IllegalArgumentException(
-                    "Passenger name cannot exceed 100 characters.");
-        }
-
-        if (seatNumber <= 0) {
-            throw new IllegalArgumentException(
-                    "Seat number must be positive.");
-        }
-    }
-
-    /*
-     * Package-private so the time and seat rules can be tested without
-     * connecting to MariaDB.
-     */
     static void validateBookingDetails(
             int scheduleId,
             String passengerName,
@@ -215,6 +220,30 @@ public class BookingService {
         }
     }
 
+    private static void validateBasicInput(
+            int scheduleId, String passengerName, int seatNumber) {
+
+        if (scheduleId <= 0) {
+            throw new IllegalArgumentException(
+                    "Schedule ID must be positive.");
+        }
+
+        if (passengerName == null || passengerName.trim().isEmpty()) {
+            throw new IllegalArgumentException(
+                    "Passenger name cannot be empty.");
+        }
+
+        if (passengerName.trim().length() > 150) {
+            throw new IllegalArgumentException(
+                    "Passenger name cannot exceed 150 characters.");
+        }
+
+        if (seatNumber <= 0) {
+            throw new IllegalArgumentException(
+                    "Seat number must be positive.");
+        }
+    }
+
     private static boolean isDuplicateKey(SQLException exception) {
         for (SQLException current = exception;
              current != null;
@@ -223,6 +252,7 @@ public class BookingService {
                 return true;
             }
         }
+
         return false;
     }
 

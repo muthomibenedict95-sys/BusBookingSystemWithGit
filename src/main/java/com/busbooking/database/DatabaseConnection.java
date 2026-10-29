@@ -29,6 +29,12 @@ public class DatabaseConnection {
 }
        PROPERTIES.load(input);
 
+       // Optional URL override for isolated integration testing.
+       String databaseUrlOverride = System.getenv("BUSBOOKING_DB_URL");
+       if (databaseUrlOverride != null && !databaseUrlOverride.isBlank()) {
+           PROPERTIES.setProperty("db.url", databaseUrlOverride.trim());
+       }
+
             if (!PROPERTIES.containsKey("db.url") ||
                 !PROPERTIES.containsKey("db.username") ||
                 !PROPERTIES.containsKey("db.password")) {

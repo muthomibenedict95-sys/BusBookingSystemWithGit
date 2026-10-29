@@ -31,5 +31,7 @@ CREATE TABLE IF NOT EXISTS bookings (
     passenger_name VARCHAR(100) NOT NULL,
     seat_number INT NOT NULL,
     booking_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT uq_bookings_schedule_seat
+        UNIQUE (schedule_id, seat_number),
     FOREIGN KEY (schedule_id) REFERENCES schedules(id)
 );

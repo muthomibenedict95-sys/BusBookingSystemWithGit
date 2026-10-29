@@ -3,23 +3,50 @@ package com.busbooking.service;
 import com.busbooking.dao.ScheduleDAO;
 import com.busbooking.model.Schedule;
 
-import java.time.LocalDate;
-import java.time.LocalTime;
+import java.time.Clock;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.List;
+import java.util.Objects;
 
 public class ScheduleService {
+    private static final ZoneId BUSINESS_ZONE =
+            ZoneId.of("Africa/Nairobi");
+
     private final ScheduleDAO scheduleDAO;
+    private final Clock clock;
 
     public ScheduleService() {
-        this.scheduleDAO = new ScheduleDAO();
+        this(new ScheduleDAO(), Clock.system(BUSINESS_ZONE));
+    }
+
+    public ScheduleService(ScheduleDAO scheduleDAO, Clock clock) {
+        this.scheduleDAO = Objects.requireNonNull(scheduleDAO);
+        this.clock = Objects.requireNonNull(clock);
+    }
+
+    private boolean hasFutureDeparture(Schedule schedule) {
+        if (schedule == null
+                || schedule.getDepartureDate() == null
+                || schedule.getDepartureTime() == null) {
+            return false;
+        }
+
+        LocalDateTime departure = schedule.getDepartureDate()
+                .atTime(schedule.getDepartureTime());
+
+        LocalDateTime now = LocalDateTime.now(clock);
+
+        return departure.isAfter(now);
     }
 
     public void addSchedule(Schedule schedule) {
-        // Business logic for adding a schedule
-        if (schedule.getDepartureDate().isBefore(LocalDate.now())) {
-            System.err.println("Departure date cannot be in the past.");
+        if (!hasFutureDeparture(schedule)) {
+            System.err.println(
+                    "Departure date and time must be in the future.");
             return;
         }
+
         scheduleDAO.insert(schedule);
     }
 
@@ -31,26 +58,31 @@ public class ScheduleService {
         return scheduleDAO.findAll();
     }
 
+    public List<Schedule> getAvailableSchedules() {
+        return scheduleDAO.findFutureSchedules();
+    }
+
     public void updateSchedule(Schedule schedule) {
-        // Business logic for updating a schedule
-        if (schedule.getId() <= 0) {
+        if (schedule == null || schedule.getId() <= 0) {
             System.err.println("Schedule ID must be valid for update.");
             return;
         }
-        if (schedule.getDepartureDate().isBefore(LocalDate.now())) {
-            System.err.println("Departure date cannot be in the past for update.");
+
+        if (!hasFutureDeparture(schedule)) {
+            System.err.println(
+                    "Departure date and time must be in the future.");
             return;
         }
+
         scheduleDAO.update(schedule);
     }
 
     public void deleteSchedule(int id) {
-        // Business logic for deleting a schedule
         if (id <= 0) {
             System.err.println("Schedule ID must be valid for deletion.");
             return;
         }
-        // You might want to check if there are any bookings associated with this schedule
+
         scheduleDAO.delete(id);
     }
 }

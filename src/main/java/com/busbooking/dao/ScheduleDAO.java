@@ -58,6 +58,32 @@ public class ScheduleDAO {
         return schedules;
     }
 
+    public List<Schedule> findFutureSchedules() {
+        List<Schedule> schedules = new ArrayList<>();
+
+        String sql = "SELECT s.*, b.bus_number, b.capacity, b.type, " +
+                     "r.source, r.destination, r.distance, r.base_price " +
+                     "FROM schedules s " +
+                     "JOIN buses b ON s.bus_id = b.id " +
+                     "JOIN routes r ON s.route_id = r.id " +
+                     "WHERE TIMESTAMP(s.departure_date, s.departure_time) > CURRENT_TIMESTAMP " +
+                     "ORDER BY s.departure_date, s.departure_time";
+
+        try (Connection conn = DatabaseConnection.getConnection();
+             PreparedStatement stmt = conn.prepareStatement(sql);
+             ResultSet rs = stmt.executeQuery()) {
+
+            while (rs.next()) {
+                schedules.add(mapRowToSchedule(rs));
+            }
+        } catch (SQLException | NullPointerException e) {
+            throw new IllegalStateException(
+                    "Could not retrieve future schedules.", e);
+        }
+
+        return schedules;
+    }
+
     private Schedule mapRowToSchedule(ResultSet rs) throws SQLException {
         Bus bus = new Bus(
             rs.getInt("bus_id"),
